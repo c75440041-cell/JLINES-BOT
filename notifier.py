@@ -39,9 +39,12 @@ class Telegram:
         if not (self.url and self.chat_id):
             log.info("[Telegram desactivado] %s", text.replace("\n", " | ")[:300])
             return
-        async with httpx.AsyncClient(timeout=20) as client:
-            for part in split_text(text):
-                await self._post(client, part)
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                for part in split_text(text):
+                    await self._post(client, part)
+        except Exception as e:  # token mal escrito, URL inválida, etc.
+            log.warning("Telegram falló (%s): %s", type(e).__name__, e)
 
     async def _post(self, client, text: str):
         payload = {

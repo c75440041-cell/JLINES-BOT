@@ -305,5 +305,23 @@ async def main():
         await ex.close()
 
 
+async def supervisor():
+    """Si main() falla por cualquier motivo, lo registra y reinicia sin que caiga el servicio."""
+    while True:
+        try:
+            await main()
+        except Exception as e:
+            log.exception("ERROR FATAL en main(): %s", e)
+            try:
+                cfg = load_config()
+                await Telegram(cfg.tg_token, cfg.tg_chat_id).send(
+                    f"💥 Error fatal: {html.escape(type(e).__name__)}: "
+                    f"{html.escape(str(e))[:300]}\nReinicio en 30 s."
+                )
+            except Exception:
+                pass
+            await asyncio.sleep(30)
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(supervisor())

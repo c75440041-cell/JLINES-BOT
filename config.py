@@ -1,12 +1,14 @@
 """Lectura de variables de entorno. En Railway se usan las del servicio; en local, el archivo .env."""
 from __future__ import annotations
 
+import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from dotenv import load_dotenv
 
 load_dotenv()
+log = logging.getLogger("config")
 
 # Activos que no se analizan (stablecoins y divisas fiat)
 STABLES = {
@@ -23,11 +25,16 @@ def _get(name: str, default: str) -> str:
 
 
 def _float(name: str, default: float) -> float:
-    return float(_get(name, str(default)))
+    raw = _get(name, str(default))
+    try:
+        return float(raw.replace(",", "."))
+    except ValueError:
+        log.warning("Variable %s=%r no es un número; uso %s", name, raw, default)
+        return float(default)
 
 
 def _int(name: str, default: int) -> int:
-    return int(float(_get(name, str(default))))
+    return int(_float(name, default))
 
 
 def _bool(name: str, default: bool) -> bool:
@@ -62,7 +69,8 @@ class Config:
 def load_config() -> Config:
     mode = _get("MODE", "signals").lower()
     if mode not in ("signals", "trade"):
-        raise ValueError("MODE debe ser 'signals' o 'trade'")
+        log.warning("MODE=%r no válido; uso 'signals'", mode)
+        mode = "signals"
 
     default_state = os.path.join(os.getenv("RAILWAY_VOLUME_MOUNT_PATH") or ".", "state.json")
 
@@ -92,11 +100,13 @@ def load_config() -> Config:
         state_file=_get("STATE_FILE", default_state),
     )
 
-    if cfg.mode == "trade":
-        if not (cfg.bingx_key and cfg.bingx_secret):
-            raise ValueError("MODE=trade necesita BINGX_API_KEY y BINGX_API_SECRET")
-        if cfg.trade_usdt <= 0 or cfg.max_positions <= 0:
-            raise ValueError("TRADE_USDT y MAX_POSITIONS deben ser mayores que 0")
+    if cfg.mode == "trade" and not (cfg.bingx_key and cfg.bingx_secret):
+        log.error("MODE=trade necesita BINGX_API_KEY y BINGX_API_SECRET; arranco en modo signals")
+        cfg = replace(cfg, mode="signals")
+    if cfg.mode == "trade" and (cfg.trade_usdt <= 0 or cfg.max_positions <= 0):
+        log.error("TRADE_USDT y MAX_POSITIONS deben ser > 0; arranco en modo signals")
+        cfg = replace(cfg, mode="signals")
     if not 1 <= cfg.min_score <= 7:
-        raise ValueError("MIN_SCORE debe estar entre 1 y 7")
+        log.warning("MIN_SCORE=%s fuera de 1-7; uso 5", cfg.min_score)
+        cfg = replace(cfg, min_score=5)
     return cfg
